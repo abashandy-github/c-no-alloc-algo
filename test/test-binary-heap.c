@@ -41,7 +41,8 @@
 #define COLOR_WIHTE   "\x1B[37m"
 #define COLOR_RESET "\x1B[0m"
 
-#define NUM_TEST_VALUES 2000
+#define DEFAULT_NUM_TEST_VALUES 2000
+#define MAX_NUM_TEST_VALUES 10000
 
 uint32_t num_fail;
 
@@ -66,6 +67,7 @@ int int_compare(binary_heap_node_t *n1, binary_heap_node_t *n2)
 }
 
 /* Print error in read color */
+__attribute__ ((format (printf, 1, 2)))
 static void print_error(char *string, ...)
 {
   va_list args;
@@ -79,12 +81,12 @@ static void print_error(char *string, ...)
 
 void
 test_populate_test_array(struct int_array_st *test_array,
-                         uint32_t original_num_entries)
+                         uint32_t passed_num_entries)
 {
   int i;
   /* Prapare the values to be inserted */
-  memset(test_array, 0, original_num_entries*sizeof(*test_array));
-  for (i = 0; i < original_num_entries; i++) {
+  memset(test_array, 0, passed_num_entries*sizeof(*test_array));
+  for (i = 0; i < passed_num_entries; i++) {
     test_array[i].value = i+1;
   }
 }
@@ -93,31 +95,31 @@ uint32_t
 test_populate_and_verify_heap(binary_heap_t *heap,
                               struct int_array_st *test_array,
                               bool is_populate,
-                              uint32_t original_num_entries,
+                              uint32_t passed_num_entries,
                               char *test_case)
 {
   int i, x, index;
   uint32_t local_fail = 0;
   binary_heap_err_t err;
-  uint32_t num_entries = original_num_entries;
-  uint32_t *indeces = malloc(original_num_entries * sizeof(*indeces));
+  uint32_t num_entries = passed_num_entries;
+  uint32_t *indeces = malloc(passed_num_entries * sizeof(*indeces));
 
   /* Initialize the test array */
   if (is_populate) {
-    test_populate_test_array(test_array, original_num_entries);
+    test_populate_test_array(test_array, passed_num_entries);
   }
   
   
   /* Populate indeces */
-  for (i = 0; i < original_num_entries; i++) {
+  for (i = 0; i < passed_num_entries; i++) {
     indeces[i] = i;
   }
 
   /* Init random to get the same sequence everytime */
-  srandom(original_num_entries + 10);
+  srandom(passed_num_entries + 10);
   
   /* Insert into the heap at random */
-  for (i = 0; i < original_num_entries; i++) {
+  for (i = 0; i < passed_num_entries; i++) {
     struct int_array_st *node;
     index = random() % num_entries;
     x = indeces[index];
@@ -141,11 +143,11 @@ test_populate_and_verify_heap(binary_heap_t *heap,
     num_entries--;
   }
   num_entries = binary_heap_num_entries(heap);
-  if (num_entries != original_num_entries) {
+  if (num_entries != passed_num_entries) {
     print_error("\n%s %d Expecting %d items but only found %d in %s heap",
                 __FUNCTION__,  __LINE__,
-                original_num_entries,
-                heap->heap_type == BINARY_HEAP_MIN ? "min": "max", num_entries);
+                passed_num_entries, num_entries,
+                heap->heap_type == BINARY_HEAP_MIN ? "min": "max");
     local_fail++;
   }
  out:
@@ -162,7 +164,6 @@ test_populate_and_verify_heap(binary_heap_t *heap,
 uint32_t
 test_binary_heap_verify_sort(binary_heap_t *heap,
                              struct int_array_st *test_array,
-                             bool is_populate,
                              char *test_case,
                              uint32_t num_entries)
 {
@@ -199,8 +200,8 @@ test_binary_heap_verify_sort(binary_heap_t *heap,
       local_fail ++;
     } else  if (prev_min->value < min->value &&
                 heap->heap_type == BINARY_HEAP_MAX) {
-      print_error("\n%s %d: %dth item value '%d' is LESS that %dth item value '%d'",
-                  test_case, __LINE__,
+      print_error("\n%s %d: %s %dth item value '%d' is LESS that %dth item value '%d'", __FUNCTION__, __LINE__,
+                  test_case,
                   i - 1, prev_min->value, i, min->value);
       local_fail ++;
     }
@@ -209,10 +210,12 @@ test_binary_heap_verify_sort(binary_heap_t *heap,
 
   /*
    * Re-insert them again to allow for re-testing
+   * We should NOT re-init the array because we deleted all entries and hence
+   * re-inserted all entries again should all succeed
    */
   local_fail+= test_populate_and_verify_heap(heap,
                                              test_array,
-                                             is_populate,
+                                             false,
                                              num_entries,
                                              test_case);
 
@@ -223,12 +226,24 @@ test_binary_heap_verify_sort(binary_heap_t *heap,
 
 /**************************** H E A P   I N S E R T ***********************/
 
-void test_binary_heap_insert(binary_heap_type_t heap_type)
+void test_binary_heap_insert(binary_heap_type_t heap_type,
+                             uint32_t passed_num_entries)
 {
   binary_heap_t heap;
   binary_heap_err_t err;
   uint32_t local_fail = 0;
-  struct int_array_st test_array[NUM_TEST_VALUES];
+  struct int_array_st *test_array =
+    malloc(passed_num_entries * sizeof(*test_array));
+
+
+  if (!test_array) {
+    print_error("\n%s %d: Cannot alloc %zu bytes heap type %s",
+                __FUNCTION__, __LINE__,
+                passed_num_entries*sizeof(*test_array),
+                heap_type == BINARY_HEAP_MIN ? "min": "max");
+    local_fail++;
+    goto out;
+  }
 
 
   err = binary_heap_init(&heap,
@@ -245,7 +260,7 @@ void test_binary_heap_insert(binary_heap_type_t heap_type)
   if ((local_fail += test_populate_and_verify_heap(&heap,
                                                    test_array,
                                                    true,
-                                                   NUM_TEST_VALUES,
+                                                   passed_num_entries,
                                                    (char *)__FUNCTION__)) != 0) {
     goto out;
   }
@@ -253,9 +268,9 @@ void test_binary_heap_insert(binary_heap_type_t heap_type)
   /*
    * Verify that the items are sorted
    */
-  local_fail += test_binary_heap_verify_sort(&heap, test_array, false,
+  local_fail += test_binary_heap_verify_sort(&heap, test_array,
                                              (char *)__FUNCTION__,
-                                             NUM_TEST_VALUES);
+                                             passed_num_entries);
 
 
  out:
@@ -267,11 +282,16 @@ void test_binary_heap_insert(binary_heap_type_t heap_type)
                 heap_type == BINARY_HEAP_MIN ? "min": "max");
   } else {
     fprintf(stdout, COLOR_GREEN);
-    fprintf(stdout, "\nTest '%s' in %s heap succeeded",
+    fprintf(stdout, "\nTest '%s' in %s heap succeeded with %d items",
             __FUNCTION__, 
-            heap_type == BINARY_HEAP_MIN ? "min": "max");
+            heap_type == BINARY_HEAP_MIN ? "min": "max",
+            passed_num_entries);
     fprintf(stdout, COLOR_RESET);
   }
+  if (test_array) {
+    free(test_array);
+  }
+
 }
 
 
@@ -279,15 +299,36 @@ void test_binary_heap_insert(binary_heap_type_t heap_type)
 /**************************** H E A P   D E L E T E ***********************/
 
 
-void test_binary_heap_delete(binary_heap_type_t heap_type)
+void test_binary_heap_delete(binary_heap_type_t heap_type,
+                             uint32_t passed_num_entries)
 {
   binary_heap_t heap;
   binary_heap_err_t err;
   int i, x, index;
   uint32_t local_fail = 0;
-  struct int_array_st test_array[NUM_TEST_VALUES];
-  uint32_t indeces[NUM_TEST_VALUES];
-  uint32_t num_entries = NUM_TEST_VALUES;
+  struct int_array_st *test_array =
+        malloc(passed_num_entries * sizeof(*test_array));
+  uint32_t *indeces =
+    malloc(passed_num_entries * sizeof(*indeces));
+  uint32_t num_entries = passed_num_entries;
+
+  if (!test_array) {
+    print_error("\n%s %d: Cannot alloc %zu bytes heap type %s",
+                __FUNCTION__, __LINE__,
+                passed_num_entries*sizeof(*test_array),
+                heap_type == BINARY_HEAP_MIN ? "min": "max");
+    local_fail++;
+    goto out;
+  }
+
+  if (!indeces) {
+    print_error("\n%s %d: Cannot alloc %zu bytes heap type %s",
+                __FUNCTION__, __LINE__,
+                passed_num_entries*sizeof(*indeces),
+                heap_type == BINARY_HEAP_MIN ? "min": "max");
+    local_fail++;
+    goto out;
+  }
 
   /* create the heap */
   err = binary_heap_init(&heap,
@@ -304,7 +345,7 @@ void test_binary_heap_delete(binary_heap_type_t heap_type)
   if ((local_fail += test_populate_and_verify_heap(&heap,
                                      test_array,
                                      true,
-                                     NUM_TEST_VALUES,
+                                     passed_num_entries,
                                      (char *)__FUNCTION__)) != 0) {
     goto out;
   }
@@ -313,20 +354,20 @@ void test_binary_heap_delete(binary_heap_type_t heap_type)
    * prepare the randmon indeces 
    */
   /* Populate indeces */
-  for (i = 0; i < NUM_TEST_VALUES; i++) {
+  for (i = 0; i < passed_num_entries; i++) {
     indeces[i] = i;
   }
   /* Init random to get the same sequence everytime Let's init with a
   * differnt value that what was inserted so that the deletion is not
   * the same as the insertion
   */
-  srandom(NUM_TEST_VALUES + 30);
+  srandom(passed_num_entries + 30);
   
   /*
    * Let's delete 1/2 of the values in pseudo random order that is DIFFERENT
    * from how they are inserted
    */
-  for (i = 0; i < NUM_TEST_VALUES/2; ++i) {
+  for (i = 0; i < passed_num_entries/2; ++i) {
     index = random() % num_entries;
     x = indeces[index];
     err = binary_heap_delete(&heap, &test_array[x].node);
@@ -363,11 +404,12 @@ void test_binary_heap_delete(binary_heap_type_t heap_type)
   }
 
   /* Let's verify that the remaining entries still obey the heap
-     property after the deletion of 1/2 of the items */
-  local_fail += test_binary_heap_verify_sort(&heap, test_array,
-                                             false,
-                                             (char *)__FUNCTION__,
-                                             NUM_TEST_VALUES/2);
+     property after the deletion of 1/2 of the items 
+  Remember that passed_num_entries may not always be didivsible by 2*/
+  local_fail +=
+    test_binary_heap_verify_sort(&heap, test_array,
+                                 (char *)__FUNCTION__,
+                                 passed_num_entries - passed_num_entries/2);
 
 
  out:
@@ -379,10 +421,17 @@ void test_binary_heap_delete(binary_heap_type_t heap_type)
                 heap_type == BINARY_HEAP_MIN ? "min": "max");
   } else {
     fprintf(stdout, COLOR_GREEN);
-    fprintf(stdout, "\nTest '%s' in %s heap succeeded",
+    fprintf(stdout, "\nTest '%s' in %s heap succeeded with %d items",
             __FUNCTION__, 
-            heap_type == BINARY_HEAP_MIN ? "min": "max");
+            heap_type == BINARY_HEAP_MIN ? "min": "max",
+            passed_num_entries);
     fprintf(stdout, COLOR_RESET);
+  }
+  if (test_array) {
+    free(test_array);
+  }
+  if (indeces) {
+    free(indeces);
   }
 }
   
@@ -390,19 +439,49 @@ void test_binary_heap_delete(binary_heap_type_t heap_type)
 
 /*************** H E A P   I N S E R T   A N D   D E L E T E *****************/
 
-void test_binary_heap_insert_delete(binary_heap_type_t heap_type)
+void test_binary_heap_insert_delete(binary_heap_type_t heap_type,
+                                    uint32_t passed_num_entries)
 {
   binary_heap_t heap;
   binary_heap_err_t err;
   int i, x, index;
   uint32_t local_fail = 0;
-  struct int_array_st test_array[NUM_TEST_VALUES];
+  struct int_array_st *test_array =
+        malloc(passed_num_entries * sizeof(*test_array));
+  uint32_t *indeces =
+    malloc(passed_num_entries * sizeof(*indeces));
+  uint32_t *reinsert_indeces =
+        malloc(passed_num_entries * sizeof(*reinsert_indeces));
   uint32_t num_entries;
-  uint32_t indeces[NUM_TEST_VALUES];
-  uint32_t reinsert_indeces[NUM_TEST_VALUES];
+
+  if (!test_array) {
+    print_error("\n%s %d: Cannot alloc %zu bytes heap type %s",
+                __FUNCTION__, __LINE__,
+                passed_num_entries*sizeof(*test_array),
+                heap_type == BINARY_HEAP_MIN ? "min": "max");
+    local_fail++;
+    goto out;
+  }
+  if (!indeces) {
+    print_error("\n%s %d: Cannot alloc %zu bytes heap type %s",
+                __FUNCTION__, __LINE__,
+                passed_num_entries*sizeof(*indeces),
+                heap_type == BINARY_HEAP_MIN ? "min": "max");
+    local_fail++;
+    goto out;
+  }
+  if (!reinsert_indeces) {
+    print_error("\n%s %d: Cannot alloc %zu bytes heap type %s",
+                __FUNCTION__, __LINE__,
+                passed_num_entries*sizeof(*reinsert_indeces),
+                heap_type == BINARY_HEAP_MIN ? "min": "max");
+    local_fail++;
+    goto out;
+  }
+
 
   /* Initialize the test array */
-  test_populate_test_array(test_array,NUM_TEST_VALUES);
+  test_populate_test_array(test_array,passed_num_entries);
   
 
   /* create the heap */
@@ -420,7 +499,7 @@ void test_binary_heap_insert_delete(binary_heap_type_t heap_type)
   if ((local_fail += test_populate_and_verify_heap(&heap,
                                      test_array,
                                      false,
-                                     NUM_TEST_VALUES,
+                                     passed_num_entries,
                                      (char *)__FUNCTION__)) != 0) {
     goto out;
   }
@@ -430,13 +509,13 @@ void test_binary_heap_insert_delete(binary_heap_type_t heap_type)
    * from how they are inserted
    */
   /* Populate indeces */
-  for (i = 0; i < NUM_TEST_VALUES; i++) {
+  for (i = 0; i < passed_num_entries; i++) {
     indeces[i] = i;
   }
   /* Init random to get the same sequence everytime */
-  srandom(NUM_TEST_VALUES*2);
-  num_entries = NUM_TEST_VALUES;
-  for (i = 0; i < NUM_TEST_VALUES/2; i++){
+  srandom(passed_num_entries*2);
+  num_entries = passed_num_entries;
+  for (i = 0; i < passed_num_entries/2; i++){
     index = random() % num_entries;
     x = indeces[index];
         
@@ -475,8 +554,8 @@ void test_binary_heap_insert_delete(binary_heap_type_t heap_type)
    * Let's re-insert the same items but with different order that how
    * they where deleted
    */
-  num_entries = NUM_TEST_VALUES/2;
-  for (i = 0; i < NUM_TEST_VALUES/2; i++) {
+  num_entries = passed_num_entries/2;
+  for (i = 0; i < passed_num_entries/2; i++) {
     index = random() % num_entries;
     x = reinsert_indeces[index];
     err = binary_heap_insert(&heap, &test_array[x].node);
@@ -509,9 +588,9 @@ void test_binary_heap_insert_delete(binary_heap_type_t heap_type)
 
   /* Let's verify that they are still sorted after deletion then
      insertion of some items*/
-  local_fail += test_binary_heap_verify_sort(&heap, test_array, true,
+  local_fail += test_binary_heap_verify_sort(&heap, test_array,
                                              (char *)__FUNCTION__,
-                                             NUM_TEST_VALUES);
+                                             passed_num_entries);
 
 
  out:
@@ -523,10 +602,20 @@ void test_binary_heap_insert_delete(binary_heap_type_t heap_type)
                 heap_type == BINARY_HEAP_MIN ? "min": "max");
   } else {
     fprintf(stdout, COLOR_GREEN);
-    fprintf(stdout, "\nTest '%s' in %s heap succeeded",
+    fprintf(stdout, "\nTest '%s' in %s heap succeeded with %d items",
             __FUNCTION__, 
-            heap_type == BINARY_HEAP_MIN ? "min": "max");
+            heap_type == BINARY_HEAP_MIN ? "min": "max",
+            passed_num_entries);
     fprintf(stdout, COLOR_RESET);
+  }
+  if (test_array) {
+    free(test_array);
+  }
+  if (indeces) {
+    free(indeces);
+  }
+  if (reinsert_indeces) {
+    free(reinsert_indeces);
   }
 }
   
@@ -593,10 +682,10 @@ void test_binary_heap_modify(binary_heap_type_t heap_type)
     local_fail++;
     goto out;
   }
-  if (test_binary_heap_verify_sort(&heap, test_array, false,
+  if (test_binary_heap_verify_sort(&heap, test_array,
                                    (char *)__FUNCTION__,
                                    num_entries)) {
-    print_error("\n%s %d: FAILED non-ranking INCREMENT %dth item '%d' in %s heap",
+    print_error("\n%s %d: FAILED non-ranking INCREMENT %dth item '%d' in %s heap: %d",
                 __FUNCTION__, __LINE__,
                   i, test_array[i].value,
                   heap.heap_type == BINARY_HEAP_MIN ? "min": "max", err);
@@ -616,10 +705,10 @@ void test_binary_heap_modify(binary_heap_type_t heap_type)
       local_fail++;
       goto out;
    }
-  if (test_binary_heap_verify_sort(&heap, test_array, false,
+  if (test_binary_heap_verify_sort(&heap, test_array,
                                    (char *)__FUNCTION__,
                                    num_entries)) {
-    print_error("\n%s %d: FAILED non-ranking DECREMENT %dth item '%d' in %s heap",
+    print_error("\n%s %d: FAILED non-ranking DECREMENT %dth item '%d' in %s heap: %d",
                 __FUNCTION__, __LINE__,
                 i, test_array[i].value,
                 heap.heap_type == BINARY_HEAP_MIN ? "min": "max", err);
@@ -639,13 +728,13 @@ void test_binary_heap_modify(binary_heap_type_t heap_type)
     local_fail++;
     goto out;
   }
-  if (test_binary_heap_verify_sort(&heap, test_array, false,
+  if (test_binary_heap_verify_sort(&heap, test_array,
                                    (char *)__FUNCTION__,
                                    num_entries)) {
     print_error("\n%s %d: FAILED ranking INCREMENT %dth item '%d' in %s heap",
                 __FUNCTION__, __LINE__,
                 i, test_array[i].value,
-                heap.heap_type == BINARY_HEAP_MIN ? "min": "max", err);
+                heap.heap_type == BINARY_HEAP_MIN ? "min": "max");
     local_fail++;
     goto out;
   }
@@ -663,9 +752,9 @@ void test_binary_heap_modify(binary_heap_type_t heap_type)
     local_fail++;
     goto out;
   }
-  if (test_binary_heap_verify_sort(&heap, test_array, false,
+  if (test_binary_heap_verify_sort(&heap, test_array,
                                    (char *)__FUNCTION__, num_entries)) {
-    print_error("\n%s %d: FAILED ranking DECREMENT %dth item '%d' in %s heap",
+    print_error("\n%s %d: FAILED ranking DECREMENT %dth item '%d' in %s heap: %d",
                 __FUNCTION__, __LINE__,
                   i, test_array[i].value,
                   heap.heap_type == BINARY_HEAP_MIN ? "min": "max", err);
@@ -686,13 +775,13 @@ void test_binary_heap_modify(binary_heap_type_t heap_type)
     local_fail++;
     goto out;
   }
-  if (test_binary_heap_verify_sort(&heap, test_array, false,
+  if (test_binary_heap_verify_sort(&heap, test_array,
                                    (char *) __FUNCTION__,
                                    num_entries)) {
     print_error("\n%s %d: FAILED MAXIMIZING %dth item '%d' in %s heap",
                 __FUNCTION__, __LINE__,
                   i, test_array[i].value,
-                  heap.heap_type == BINARY_HEAP_MIN ? "min": "max", err);
+                  heap.heap_type == BINARY_HEAP_MIN ? "min": "max");
       local_fail++;
       goto out;
    }
@@ -709,13 +798,13 @@ void test_binary_heap_modify(binary_heap_type_t heap_type)
     local_fail++;
     goto out;
   }
-  if (test_binary_heap_verify_sort(&heap, test_array, false,
+  if (test_binary_heap_verify_sort(&heap, test_array,
                                    (char *) __FUNCTION__,
                                    num_entries)) {
     print_error("\n%s %d: FAILED MINIMIZING %dth item '%d' in %s heap",
                 __FUNCTION__, __LINE__,
                   i, test_array[i].value,
-                  heap.heap_type == BINARY_HEAP_MIN ? "min": "max", err);
+                  heap.heap_type == BINARY_HEAP_MIN ? "min": "max");
     local_fail++;
     goto out;
    }
@@ -730,9 +819,10 @@ out:
                 heap_type == BINARY_HEAP_MIN ? "min": "max");
   } else {
     fprintf(stdout, COLOR_GREEN);
-    fprintf(stdout, "\nTest '%s' in %s heap succeeded",
+    fprintf(stdout, "\nTest '%s' in %s heap succeeded with %d items",
             __FUNCTION__, 
-            heap_type == BINARY_HEAP_MIN ? "min": "max");
+            heap_type == BINARY_HEAP_MIN ? "min": "max",
+            num_entries);
     fprintf(stdout, COLOR_RESET);
   }
 }
@@ -742,20 +832,30 @@ out:
 /************ M A I N   F U N C N T I O N **********************/
 int main(int argc, char *argv[])
 {
+  int i;
+  int num_repeat = 10;
   fprintf(stdout, "\n*S T A R T I N G   B I N A R Y   H E A P   T E S T S*");
-  test_binary_heap_insert(BINARY_HEAP_MIN);
-  test_binary_heap_insert(BINARY_HEAP_MAX);
-  test_binary_heap_delete(BINARY_HEAP_MIN);
-  test_binary_heap_delete(BINARY_HEAP_MAX);
-  test_binary_heap_insert_delete(BINARY_HEAP_MIN);
-  test_binary_heap_insert_delete(BINARY_HEAP_MAX);
+  srandom(DEFAULT_NUM_TEST_VALUES + 10);
+  for (i = 0; i < num_repeat; i++) {
+    uint32_t num_entries = random() % MAX_NUM_TEST_VALUES;
+    printf("\nRepetition %d with %d entries", i, num_entries);
+    test_binary_heap_insert(BINARY_HEAP_MIN, num_entries);
+    test_binary_heap_insert(BINARY_HEAP_MAX, num_entries);
+    test_binary_heap_delete(BINARY_HEAP_MIN, num_entries);
+    test_binary_heap_delete(BINARY_HEAP_MAX, num_entries);
+    test_binary_heap_insert_delete(BINARY_HEAP_MIN, num_entries);
+    test_binary_heap_insert_delete(BINARY_HEAP_MAX, num_entries);
+    printf("\n");
+  }
+
+  printf("\nTesting binary_heap_modify");
   test_binary_heap_modify(BINARY_HEAP_MIN);
   test_binary_heap_modify(BINARY_HEAP_MAX);
   if (num_fail) {
-    print_error("\n  ***F A I L U R E S : %d !!***\n", num_fail);
+    print_error("\n\n  ***F A I L U R E S : %d !!***\n", num_fail);
   } else {
     fprintf(stdout, COLOR_GREEN);
-    fprintf(stdout, "\n  **A L L   T E S T S   S U C C E E D E D**\n\n");
+    fprintf(stdout, "\n\n  **A L L   T E S T S   S U C C E E D E D**\n\n");
     fprintf(stdout, COLOR_RESET);
   }
   return 0;
