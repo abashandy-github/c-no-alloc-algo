@@ -42,20 +42,60 @@ the src/ directory
 #include <string.h>
 #include <unistd.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdarg.h>
 
 #include "avl-tree.h"
-
 #include "framework.h"
 
-#define NUM_TEST_VALUES 1000
+#define COLOR_NORMAL   "\x1B[0m"
+#define COLOR_RED   "\x1B[31m"
+#define COLOR_GREEN   "\x1B[32m"
+#define COLOR_YELLOW   "\x1B[33m"
+#define COLOR_BLUE   "\x1B[34m"
+#define COLOR_MAGENTA   "\x1B[35m"
+#define COLOR_CYAN   "\x1B[36m"
+#define COLOR_WIHTE   "\x1B[37m"
+#define COLOR_RESET "\x1B[0m"
 
+
+#define NUM_TEST_VALUES 1000 /* "test_avl_tree_lookup(void)" will FAIL if you change this */
 
 struct int_array_t {
-  AVLTreeNode node;
+  char dummy[2]; /* field so that we have a non-zero offset to the value, which is also the key */
   int value;
+  AVLTreeNode node;
 };
 
 struct int_array_t test_array[NUM_TEST_VALUES];
+
+/*
+ * Assert macro to print error instead of crashing
+ */
+#define ASSERT(condition) \
+  if (!(condition)) {                           \
+    char *string = #condition;                                            \
+    print_error("\n%s %d condition '%s' failed\n", __FUNCTION__, __LINE__, string); \
+  }                                                                     \
+
+
+/*
+ * Gets us the beginning of the structure given the node pointer
+ */
+#define TEST_NODE_TO_VAL(x) \
+  (x ? ((struct int_array_t *)((uintptr_t)x - offsetof(struct int_array_t, node))) : NULL)
+
+/* Print error in read color */
+__attribute__ ((format (printf, 1, 2)))
+static void print_error(char *string, ...)
+{
+  va_list args;
+  va_start(args, string);
+  fprintf(stderr, COLOR_RED);
+  vfprintf(stderr, string, args);
+  fprintf(stderr, COLOR_RESET);
+  va_end(args);
+}
 
 #if 0
 /* Tree print function - useful for debugging. */
@@ -75,7 +115,7 @@ static void print_tree(AVLTreeNode *node, int depth)
 		printf(" ");
 	}
 
-	value = avl_tree_node_key(node);
+	value = TEST_NODE_TO_VAL(node);
 	printf("%i\n", value->value);
 
 	print_tree(avl_tree_node_child(node, AVL_TREE_NODE_RIGHT), depth + 1);
@@ -88,7 +128,7 @@ static void print_tree(AVLTreeNode *node, int depth)
  * It does NOT DO anything because our nodes are NOT allocated
  * However we MUST pass it otherwisse the avl_tree_free will NOT do anything
  */
-static void internal_free(AVLTreeValue value,
+static void internal_free(AVLTreeNode *node,
                             void *context __attribute__((unused)))
 {
   return;
@@ -132,7 +172,7 @@ int find_subtree_height(AVLTreeNode *node)
 
 int counter;
 
-int validate_subtree(AVLTreeNode *node)
+int validate_subtree(AVLTree *tree, AVLTreeNode *node)
 {
 	AVLTreeNode *left_node, *right_node;
 	int left_height, right_height;
@@ -148,35 +188,35 @@ int validate_subtree(AVLTreeNode *node)
 	/* Check the parent references of the children */
 
 	if (left_node != NULL) {
-		assert(avl_tree_node_parent(left_node) == node);
+		ASSERT(avl_tree_node_parent(left_node) == node);
 	}
 	if (right_node != NULL) {
-		assert(avl_tree_node_parent(right_node) == node);
+		ASSERT(avl_tree_node_parent(right_node) == node);
 	}
 
 	/* Recursively validate the left and right subtrees,
 	 * obtaining the height at the same time. */
 
-	left_height = validate_subtree(left_node);
+	left_height = validate_subtree(tree, left_node);
 
 	/* Check that the keys are in the correct order */
 
-	key = (int *) avl_tree_node_key(node);
+	key = (int *) avl_tree_node_key(tree, node);
 
-	assert(*key > counter);
+	ASSERT(*key > counter);
 	counter = *key;
 
-	right_height = validate_subtree(right_node);
+	right_height = validate_subtree(tree, right_node);
 
 	/* Check that the returned height value matches the
 	 * result of avl_tree_subtree_height(). */
 
-	assert(avl_tree_subtree_height(left_node) == left_height);
-	assert(avl_tree_subtree_height(right_node) == right_height);
+	ASSERT(avl_tree_subtree_height(left_node) == left_height);
+	ASSERT(avl_tree_subtree_height(right_node) == right_height);
 
 	/* Check this node is balanced */
 
-	assert(left_height - right_height < 2 &&
+	ASSERT(left_height - right_height < 2 &&
 	       right_height - left_height < 2);
 
 	/* Calculate the height of this node */
@@ -197,11 +237,11 @@ void validate_tree(AVLTree *tree)
 
 	if (root_node != NULL) {
 		height = find_subtree_height(root_node);
-		assert(avl_tree_subtree_height(root_node) == height);
+		ASSERT(avl_tree_subtree_height(root_node) == height);
 	}
 
 	counter = -1;
-	validate_subtree(root_node);
+	validate_subtree(tree, root_node);
 }
 
 AVLTree *create_tree(AVLTree *tree_struct)
@@ -215,14 +255,14 @@ AVLTree *create_tree(AVLTree *tree_struct)
   /* Create a tree and fill with nodes */
    
   tree = avl_tree_new(tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node), /* Key is right after node field */
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
  
   for (i=0; i<NUM_TEST_VALUES; ++i) {
     test_array[i].value = i;
-    assert(avl_tree_insert(tree, &test_array[i]) != NULL);
+    ASSERT(avl_tree_insert(tree, &test_array[i].node) != NULL);
   }
    
   return tree;
@@ -235,14 +275,14 @@ void test_avl_tree_new(void)
 
   printf(":  '%s'", __FUNCTION__);
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
 
-  assert(tree != NULL);
-  assert(avl_tree_root_node(tree) == NULL);
-  assert(avl_tree_num_entries(tree) == 0);  
+  ASSERT(tree != NULL);
+  ASSERT(avl_tree_root_node(tree) == NULL);
+  ASSERT(avl_tree_num_entries(tree) == 0);  
 }
 
 void test_avl_tree_insert_lookup(void)
@@ -259,7 +299,7 @@ void test_avl_tree_insert_lookup(void)
   /* Create a tree containing some values. Validate the
    * tree is consistent at all stages. */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
@@ -267,29 +307,29 @@ void test_avl_tree_insert_lookup(void)
   
   for (i=0; i<NUM_TEST_VALUES; ++i) {
     test_array[i].value = (int) i;
-    avl_tree_insert(tree, &test_array[i]);
+    avl_tree_insert(tree, &test_array[i].node);
     
-    assert(avl_tree_num_entries(tree) == i + 1);
+    ASSERT(avl_tree_num_entries(tree) == i + 1);
     validate_tree(tree);
   }
   
-  assert(avl_tree_root_node(tree) != NULL);
+  ASSERT(avl_tree_root_node(tree) != NULL);
   
   /* Check that all values can be read back again */
   
   for (i=0; i<NUM_TEST_VALUES; ++i) {
-    node = avl_tree_lookup_node(tree, &i);
-    assert(node != NULL);
-    key = avl_tree_node_key(node);
-    assert(*(int *)key == (int) i);
-    value = avl_tree_node_value(node);
-    assert(value->value == (int) i);
+    node = avl_tree_lookup(tree, &i);
+    ASSERT(node != NULL);
+    key = avl_tree_node_key(tree, node);
+    ASSERT(*(int *)key == (int) i);
+    value = TEST_NODE_TO_VAL(node);
+    ASSERT(value->value == (int) i);
   }
   
   /* Check that invalid nodes are not found */
   
   i = NUM_TEST_VALUES + 100;
-  assert(avl_tree_lookup_node(tree, &i) == NULL);
+  ASSERT(avl_tree_lookup(tree, &i) == NULL);
   
 }
 
@@ -309,33 +349,33 @@ void test_avl_tree_child(void)
   /* Create a tree containing some values. Validate the
    * tree is consistent at all stages. */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
   for (i=0; i<3; ++i) {
     values[i].value = i + 1;
-    avl_tree_insert(tree, &values[i]);
+    avl_tree_insert(tree, &values[i].node);
   }
   
   /* Check the tree */
   
   root = avl_tree_root_node(tree);
-  p = avl_tree_node_value(root);
-  assert(p->value == 2);
+  p = TEST_NODE_TO_VAL(root);
+  ASSERT(p->value == 2);
   
   left = avl_tree_node_child(root, AVL_TREE_NODE_LEFT);
-  p = avl_tree_node_value(left);
-  assert(p->value == 1);
+  p = TEST_NODE_TO_VAL(left);
+  ASSERT(p->value == 1);
   
   right = avl_tree_node_child(root, AVL_TREE_NODE_RIGHT);
-  p = avl_tree_node_value(right);
-  assert(p->value == 3);
+  p = TEST_NODE_TO_VAL(right);
+  ASSERT(p->value == 3);
   
   /* Check invalid values */
   
-  assert(avl_tree_node_child(root, 10000) == NULL);
-  assert(avl_tree_node_child(root, 2) == NULL);
+  ASSERT(avl_tree_node_child(root, 10000) == NULL);
+  ASSERT(avl_tree_node_child(root, 2) == NULL);
   
 }
 
@@ -350,7 +390,7 @@ void test_avl_tree_free(void)
 
   /* Try freeing an empty tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
@@ -378,20 +418,20 @@ void test_avl_tree_lookup(void)
   tree = create_tree(&tree_struct);
   
   for (i=0; i<NUM_TEST_VALUES; ++i) {
-    value = avl_tree_lookup(tree, &i);
+    value = TEST_NODE_TO_VAL(avl_tree_lookup(tree, &i));
     
-    assert(value != NULL);
-    assert(value->value == i);
+    ASSERT(value != NULL);
+    ASSERT(value->value == i);
   }
         
   /* Test invalid values */
   
   i = -1;
-  assert(avl_tree_lookup(tree, &i) == NULL);
+  ASSERT(avl_tree_lookup(tree, &i) == NULL);
   i = NUM_TEST_VALUES + 1;
-  assert(avl_tree_lookup(tree, &i) == NULL);
+  ASSERT(avl_tree_lookup(tree, &i) == NULL);
   i = 8724897;
-  assert(avl_tree_lookup(tree, &i) == NULL);
+  ASSERT(avl_tree_lookup(tree, &i) == NULL);
   
 }
 
@@ -411,9 +451,9 @@ void test_avl_tree_remove(void)
   /* Try removing invalid entries */
   
   i = NUM_TEST_VALUES + 100;
-  assert(avl_tree_remove(tree, &i) == 0);
+  ASSERT(avl_tree_remove(tree, &i) == 0);
   i = -1;
-  assert(avl_tree_remove(tree, &i) == 0);
+  ASSERT(avl_tree_remove(tree, &i) == 0);
   
   /* Delete the nodes from the tree */
   
@@ -426,18 +466,17 @@ void test_avl_tree_remove(void)
     for (y=0; y<10; ++y) {
       for (z=0; z<10; ++z) {
         value = z * 100 + (9 - y) * 10 + x;
-        assert(avl_tree_remove(tree, &value) != 0);
+        ASSERT(avl_tree_remove(tree, &value) != 0);
         validate_tree(tree);
         expected_entries -= 1;
-        assert(avl_tree_num_entries(tree)
-               == expected_entries);
+        ASSERT(avl_tree_num_entries(tree) == expected_entries);
       }
     }
   }
 
   /* All entries removed, should be empty now */
   
-  assert(avl_tree_root_node(tree) == NULL);
+  ASSERT(avl_tree_root_node(tree) == NULL);
   
 }
 
@@ -456,20 +495,20 @@ void test_avl_tree_to_array(void)
 
   /* Create tree then Add all entries to the tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
 
   for (i=0; i<num_entries; ++i) {
     values[i].value = entries[i];
-    avl_tree_insert(tree, &values[i]);
+    avl_tree_insert(tree, &values[i].node);
   }
 
-  assert(avl_tree_num_entries(tree) == num_entries);
+  ASSERT(avl_tree_num_entries(tree) == num_entries);
 
   /* Allocate the array because the APIs no logner allocate any memory*/
-  array = malloc(sizeof(AVLTreeValue) * tree->num_nodes);
+  array = malloc(sizeof(void *) * tree->num_nodes);
 
   
   /* Convert to an array and check the contents */
@@ -477,7 +516,7 @@ void test_avl_tree_to_array(void)
   array = (int **) avl_tree_to_array(tree, (void **)array);
 
   for (i=0; i<num_entries; ++i) {
-    assert(array[i]->value == sorted[i]);
+    ASSERT(array[i]->value == sorted[i]);
   }
 
   free(array);
@@ -488,7 +527,7 @@ void test_avl_tree_to_array(void)
   /* alloc_test_set_limit(0);
 
 	array = (int **) avl_tree_to_array(tree);
-	assert(array == NULL);
+	ASSERT(array == NULL);
 	validate_tree(tree); */
 
 	/* avl_tree_free(tree); */
@@ -509,40 +548,40 @@ void test_avl_tree_successor_predecessor_min_greater_or_equal_max_equal_or_less(
 
   /* Create tree then Add all entries to the tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
   for (i=0; i<num_entries; ++i) {
     values[i].value = entries[i];
-    avl_tree_insert(tree, &values[i]);
+    avl_tree_insert(tree, &values[i].node);
   }
-  assert(avl_tree_num_entries(tree) == num_entries);
+  ASSERT(avl_tree_num_entries(tree) == num_entries);
 
   /***************** Predeccessor testing **********************************/
   /* Test Predeccessor using a value that does NOT exist
     * Success means it is goind to return */
   i = 24; /* sucessor should be 23 */
-  value = avl_tree_predeccessor(tree, &i);
-  assert(value->value == 23);
+  value = TEST_NODE_TO_VAL(avl_tree_predeccessor(tree, &i));
+  ASSERT(value->value == 23);
 
   /* Test Predeccessor using a value that exists
    * Sucess means I should get the previous value in the tree */
   i = 23; /* sucessor should be 16 */
-  value = avl_tree_predeccessor(tree, &i);
-  assert(value->value == 16);
+  value = TEST_NODE_TO_VAL(avl_tree_predeccessor(tree, &i));
+  ASSERT(value->value == 16);
 
   /* Test Predeccessor with a value that is Less than the smallest value 
    * Success means we get back NULL */
   i = 3; /* Predecessor should be NULL because 4 is the smallest  */
-  value = avl_tree_predeccessor(tree, &i);
-  assert(value == NULL);
+  value = TEST_NODE_TO_VAL(avl_tree_predeccessor(tree, &i));
+  ASSERT(value == NULL);
 
   /* Test Predeccessor with a value that is EQUAL to the smallest value 
    * Success means we get back NULL */
   i = 4; /* Prdeceessor should be NULL because 4 is the smallest */
-  value = avl_tree_predeccessor(tree, &i);
-  assert(value == NULL);
+  value = TEST_NODE_TO_VAL(avl_tree_predeccessor(tree, &i));
+  ASSERT(value == NULL);
   
 
 
@@ -550,26 +589,26 @@ void test_avl_tree_successor_predecessor_min_greater_or_equal_max_equal_or_less(
   /* Test Max_Equal_Or_Less using a value that does NOT exist
     * Success means it is goind to return */
   i = 24; /* MAx that is less than ir equal to should be 23 */
-  value = avl_tree_max_equal_or_less(tree, &i);
-  assert(value->value == 23);
+  value = TEST_NODE_TO_VAL(avl_tree_max_equal_or_less(tree, &i));
+  ASSERT(value->value == 23);
 
   /* Test Max_Equal_Or_Less using a value that exists
    * Success means I should get the previous value in the tree */
   i = 23; /* max that is less than or equal  should be 23 because 23 exists */
-  value = avl_tree_max_equal_or_less(tree, &i);
-  assert(value->value == 23);
+  value = TEST_NODE_TO_VAL(avl_tree_max_equal_or_less(tree, &i));
+  ASSERT(value->value == 23);
 
   /* Test Max_Equal_Or_Less with a value that is Less than the smallest value 
    * Success means we get back NULL */
   i = 3; /* Max_Equal_Or_Less should be NULL because 4 is the smallest  */
-  value = avl_tree_max_equal_or_less(tree, &i);
-  assert(value == NULL);
+  value = TEST_NODE_TO_VAL(avl_tree_max_equal_or_less(tree, &i));
+  ASSERT(value == NULL);
 
   /* Test Max_Equal_Or_Less with a value that is EQUAL to the smallest value 
    * Success means we get back NULL */
   i = 4; /* Max less than or equal should be 4 because 4 is the smallest */
-  value = avl_tree_max_equal_or_less(tree, &i);
-  assert(value->value == 4);
+  value = TEST_NODE_TO_VAL(avl_tree_max_equal_or_less(tree, &i));
+  ASSERT(value->value == 4);
   
 
 
@@ -577,26 +616,26 @@ void test_avl_tree_successor_predecessor_min_greater_or_equal_max_equal_or_less(
   /* Test Successor using a value that does NOT exist
     * Success means it is goind to return */
   i = 24; /* sucessor should be 30 */
-  value = avl_tree_successor(tree, &i);
-  assert(value->value == 30);
+  value = TEST_NODE_TO_VAL(avl_tree_successor(tree, &i));
+  ASSERT(value->value == 30);
 
   /* Test Successor using a value that exists
    * Sucess means I should get the next value in the tree */
   i = 30; /* sucessor should be 42 */
-  value = avl_tree_successor(tree, &i);
-  assert(value->value == 42);
+  value = TEST_NODE_TO_VAL(avl_tree_successor(tree, &i));
+  ASSERT(value->value == 42);
 
   /* Test Successor with a value that is GREATER than the largets value 
    * Success means we get back NULL */
   i = 100; /* sucessor should be NULL because 99 is the largest  */
-  value = avl_tree_successor(tree, &i);
-  assert(value == NULL);
+  value = TEST_NODE_TO_VAL(avl_tree_successor(tree, &i));
+  ASSERT(value == NULL);
 
   /* Test Successor with a value that is EQUAL to the largest value 
    * Success means we get back NULL */
   i = 99; /* sucessor should be NULL because 99 is the largest  */
-  value = avl_tree_successor(tree, &i);
-  assert(value == NULL);
+  value = TEST_NODE_TO_VAL(avl_tree_successor(tree, &i));
+  ASSERT(value == NULL);
   
 
 
@@ -604,29 +643,29 @@ void test_avl_tree_successor_predecessor_min_greater_or_equal_max_equal_or_less(
   /* Test Min that is greater than or equal to using a value that does NOT exist
     * Success means it is goind to return */
   i = 24; /* Min that is greater than or equal to should be 30 */
-  value = avl_tree_min_equal_or_greater(tree, &i);
-  assert(value->value == 30);
+  value = TEST_NODE_TO_VAL(avl_tree_min_equal_or_greater(tree, &i));
+  ASSERT(value->value == 30);
 
   /* Test Min that is greater than or equal using a value that exists
    * Success means I should get the SAME value in the tree */
   i = 30; /* min that is greater than or equal to should be 30 */
-  value = avl_tree_min_equal_or_greater(tree, &i);
-  assert(value->value == 30);
+  value = TEST_NODE_TO_VAL(avl_tree_min_equal_or_greater(tree, &i));
+  ASSERT(value->value == 30);
 
   /* Test Min that is greater than or equal with a value that is
    *  GREATER than the largets value
    * Success means we get back NULL */
   i = 100; /* Min greater than or equal to should be NULL because 99
               is the largest */
-  value = avl_tree_min_equal_or_greater(tree, &i);
-  assert(value == NULL);
+  value = TEST_NODE_TO_VAL(avl_tree_min_equal_or_greater(tree, &i));
+  ASSERT(value == NULL);
 
   /* Test Min grreater than or equal to with a value that is EQUAL to
    *  the largest value
    * Success means we get back the largetst value */
   i = 99; /* sucessor should be 99 because 99 is the largest  */
-  value = avl_tree_min_equal_or_greater(tree, &i);
-  assert(value->value == 99);
+  value = TEST_NODE_TO_VAL(avl_tree_min_equal_or_greater(tree, &i));
+  ASSERT(value->value == 99);
   
 
   free(values);
@@ -650,20 +689,20 @@ void test_avl_tree_min_max(void)
 
   /* Create tree then Add all entries to the tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
   for (i=0; i<num_entries; ++i) {
     values[i].value = entries[i];
-    avl_tree_insert(tree, &values[i]);
+    avl_tree_insert(tree, &values[i].node);
   }
-  assert(avl_tree_num_entries(tree) == num_entries);
+  ASSERT(avl_tree_num_entries(tree) == num_entries);
 
-  value = avl_tree_max(tree);
-  assert(value->value == 99);
-  value = avl_tree_min(tree);
-  assert(value->value == 4);
+  value = TEST_NODE_TO_VAL(avl_tree_max(tree));
+  ASSERT(value->value == 99);
+  value = TEST_NODE_TO_VAL(avl_tree_min(tree));
+  ASSERT(value->value == 4);
   
   free(values);
 }
@@ -672,29 +711,29 @@ void test_avl_tree_min_max(void)
 /******************************** test tree walk ******************************/
 
 
-bool test_avl_tree_ascend_walk_func(AVLTreeValue value, void *context)
+bool test_avl_tree_ascend_walk_func(AVLTreeNode *node, void *context)
 {
   static uint32_t i;
   int *array = (int *)context;
-  int num = ((struct int_array_t *)value)->value;
+  int num = TEST_NODE_TO_VAL(node)->value;
   array[i] = num;
   i++;
   return (false);
 }
-bool test_avl_tree_descend_walk_func(AVLTreeValue value, void *context)
+bool test_avl_tree_descend_walk_func(AVLTreeNode *node, void *context)
 {
   static uint32_t i;
   int *array = (int *)context;
-  int num = ((struct int_array_t *)value)->value;
+  int num = TEST_NODE_TO_VAL(node)->value;
   array[i] = num;
   i++;
   return (false);
 }
-bool test_avl_tree_abort_walk_func(AVLTreeValue value, void *context)
+bool test_avl_tree_abort_walk_func(AVLTreeNode *node, void *context)
 {
   static uint32_t i;
   int *array = (int *)context;
-  int num = ((struct int_array_t *)value)->value;
+  int num = TEST_NODE_TO_VAL(node)->value;
   array[i] = num;
   i++;
   if (i == 3) {
@@ -718,29 +757,29 @@ void test_avl_tree_walk(void)
   array  = malloc(sizeof(entries));
   /* Create tree then Add all entries to the tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value), /* Key is right after node field */
+                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node), /* Key is right after node field */
                       (AVLTreeCompareFunc) int_compare,
                       internal_free,
                       NULL);
   for (i=0; i<num_entries; ++i) {
     values[i].value = entries[i];
-    avl_tree_insert(tree, &values[i]);
+    avl_tree_insert(tree, &values[i].node);
   }
-  assert(avl_tree_num_entries(tree) == num_entries);
+  ASSERT(avl_tree_num_entries(tree) == num_entries);
 
   /*
    * Test ascending walk
    */
   memset(array, 0, sizeof(entries));
   avl_tree_walk(tree, false, test_avl_tree_ascend_walk_func, array);
-  assert(!memcmp(array, ascend, sizeof(entries)));
+  ASSERT(!memcmp(array, ascend, sizeof(entries)));
   
   /*
    * Test descending walk
    */
   memset(array, 0, sizeof(entries));
   avl_tree_walk(tree, true, test_avl_tree_descend_walk_func, array);
-  assert(!memcmp(array, descend, sizeof(entries)));
+  ASSERT(!memcmp(array, descend, sizeof(entries)));
 
   /*
    * Test aborting walk
@@ -748,7 +787,7 @@ void test_avl_tree_walk(void)
   memset(array, 0, sizeof(entries));
   avl_tree_walk(tree, false, test_avl_tree_abort_walk_func, array);
   for (i = 3; i < num_entries; i++) {
-    assert(array[i] != 0);
+    ASSERT(array[i] != 0);
   }
   free(array);
 }

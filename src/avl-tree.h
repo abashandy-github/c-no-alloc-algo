@@ -85,16 +85,6 @@ extern "C" {
  */
 typedef void *AVLTreeKey;
 
-/**
- * A value stored in an @ref AVLTree.
- */
-typedef void *AVLTreeValue;
-
-/**
- * A null @ref AVLTreeValue.
- */
-#define AVL_TREE_NULL ((void *) 0)
-
 
 /**
  * An @ref AVLTreeNode can have left and right children.
@@ -105,22 +95,38 @@ typedef enum {
 } AVLTreeNodeSide;
 
 /**
+ * A node in an AVL tree.
+ *
+ * @see avl_tree_node_left_child
+ * @see avl_tree_node_right_child
+ * @see avl_tree_node_parent
+ * @see avl_tree_node_key
+ */
+typedef struct _AVLTreeNode {
+  struct _AVLTreeNode *children[2];
+  struct _AVLTreeNode *parent;
+  int height;
+} AVLTreeNode;
+
+
+/**
  * Type of function used to compare keys in an AVL tree.
  *
- * @param value1           The first key.
- * @param value2           The second key.
- * @return                 A negative number if value1 should be sorted
- *                         before value2, a positive number if value2 should
- *                         be sorted before value1, zero if the two keys
- *                         are equal.
+ * @param value1   The first key.
+ * @param value2   The second key.
+
+ * @return         A negative number if node with key1 should be sorted before
+ *                 node with key2, a positive number if node with key2 should
+ *                 be sorted before node with key1, zero if the two keys are
+ *                 equal.
  */
-typedef int (*AVLTreeCompareFunc)(AVLTreeValue value1, AVLTreeValue value2);
+typedef int (*AVLTreeCompareFunc)(AVLTreeKey Key1, AVLTreeKey Key2);
 
 /*
  * Callback function to free a node 
  * Remember that a node is now the FIRST field of the "value" structure
  */
-typedef void (*AVLTreeFreeFunc)(AVLTreeValue value, void *context);
+typedef void (*AVLTreeFreeFunc)(AVLTreeNode *node, void *context);
 
 /*
  * Callback function to walk a tree
@@ -131,25 +137,8 @@ typedef void (*AVLTreeFreeFunc)(AVLTreeValue value, void *context);
  * @return          if the the returned value is "non-false", the walk will 
  *                  be aborted immediately
  */
-typedef bool (*AVLTreeWalkFunc)(AVLTreeValue value, void *context);
+typedef bool (*AVLTreeWalkFunc)(AVLTreeNode *node, void *context);
   
-/**
- * A node in an AVL tree.
- *
- * @see avl_tree_node_left_child
- * @see avl_tree_node_right_child
- * @see avl_tree_node_parent
- * @see avl_tree_node_key
- * @see avl_tree_node_value
- */
-typedef struct _AVLTreeNode {
-  struct _AVLTreeNode *children[2];
-  struct _AVLTreeNode *parent;
-  AVLTreeKey key;
-  AVLTreeValue value;
-  int height;
-} AVLTreeNode;
-
 
 /**
  * An AVL tree balanced binary tree.
@@ -160,9 +149,9 @@ typedef struct _AVLTreeNode {
 typedef struct _AVLTree  {
   AVLTreeNode *root_node;
   AVLTreeCompareFunc compare_func;
-  unsigned int num_nodes;
+  uint32_t num_nodes;
   AVLTreeFreeFunc free_func;
-  uintptr_t key_offset;
+  intptr_t key_offset;
   void *free_context;
 } AVLTree;
 
@@ -176,9 +165,25 @@ typedef struct _AVLTree  {
  *                      tree. 
  *                      It is the responsibility of the caller to allocate
  *                      and free this pointer
- * @param key_offset    Offset from beginning of "value" to where the key 
- *                      starts. "value" is what user of this library inserts,
- *                      deletes, lookup,..., etc
+ * @param key_offset    Offset from the beginning of the field "node" to where the
+ *                      key starts. "node" is a field in what user of this
+ *                      library inserts, deletes, lookup,..., etc
+ *                      NOTE:
+ *                      "key_offset" determines the address that will be passed
+ *                      to the compare function. How the compare function
+ *                      performs the comparison or what contents to it uses to
+ *                      return negative, positive, or zero is application
+ *                      specific. "key_offset" just determines what will be
+ *                      passed to the compare function. Hence "key_offset"
+ *                      may point to anything inside or outside the value that
+ *                      the user inserts/deletes/looks-up in the tree
+ *                      QUESTION:
+ *                      Why do we need a key? Can't we just live with "node"?
+ *                      We need a key because we have to perform lookup, where
+ *                      the user provides a key and the library returns a node
+ *                      whose key matches the lookup key (as determined by the
+ *                      compare function)
+ *
  * @param compare_func  Function to use when comparing keys in the tree.
  * @param free_func;    Function used to free a node
  *                      This is optional. But it is required if the caller wants
@@ -189,7 +194,7 @@ typedef struct _AVLTree  {
  *                        to create the tree for any reason.
  */
 AVLTree *avl_tree_new(AVLTree *new_tree,
-                      uintptr_t key_offset,
+                      intptr_t key_offset,
                       AVLTreeCompareFunc compare_func,
                       AVLTreeFreeFunc free_func,
                       void *free_context);
@@ -215,7 +220,7 @@ void avl_tree_free(AVLTree *tree);
  *                        node with the same key
  */
 
-AVLTreeNode *avl_tree_insert(AVLTree *tree, AVLTreeValue value);
+AVLTreeNode *avl_tree_insert(AVLTree *tree, AVLTreeNode *new_node);
 
 /**
  * Remove a node from a tree.
@@ -249,22 +254,7 @@ int avl_tree_remove(AVLTree *tree, AVLTreeKey key);
  *                        if no entry with the given key is found.
  */
 
-AVLTreeNode *avl_tree_lookup_node(AVLTree *tree, AVLTreeKey key);
-
-/**
- * Search an AVL tree for a value corresponding to a particular key.
- * This uses the tree as a mapping.  Note that this performs
- * identically to @ref avl_tree_lookup_node, except that the value
- * at the node is returned rather than the node itself.
- *
- * @param tree            The AVL tree to search.
- * @param key             The key to search for.
- * @return                The value associated with the given key, or
- *                        @ref AVL_TREE_NULL if no entry with the given key is
- *                        found.
- */
-
-AVLTreeValue avl_tree_lookup(AVLTree *tree, AVLTreeKey key);
+AVLTreeNode *avl_tree_lookup(AVLTree *tree, AVLTreeKey key);
 
 /**
  * Find the root node of a tree.
@@ -279,20 +269,12 @@ AVLTreeNode *avl_tree_root_node(AVLTree *tree);
 /**
  * Retrieve the key for a given tree node.
  *
+ * @param tree            The tree.
  * @param node            The tree node.
  * @return                The key to the given node.
  */
 
-AVLTreeKey avl_tree_node_key(AVLTreeNode *node);
-
-/**
- * Retrieve the value at a given tree node.
- *
- * @param node            The tree node.
- * @return                The value at the given node.
- */
-
-AVLTreeValue avl_tree_node_value(AVLTreeNode *node);
+AVLTreeKey avl_tree_node_key(AVLTree *tree, AVLTreeNode *node);
 
 /**
  * Find the child of a given tree node.
@@ -337,7 +319,7 @@ int avl_tree_subtree_height(AVLTreeNode *node);
  *               (see @ref avl_tree_num_entries).
  */
 
-AVLTreeValue *avl_tree_to_array(AVLTree *tree, void **array);
+void  **avl_tree_to_array(AVLTree *tree, void **array);
 
 /**
  * Retrieve the number of entries in the tree.
@@ -346,7 +328,7 @@ AVLTreeValue *avl_tree_to_array(AVLTree *tree, void **array);
  * @return                The number of key-value pairs stored in the tree.
  */
 
-unsigned int avl_tree_num_entries(AVLTree *tree);
+uint32_t avl_tree_num_entries(AVLTree *tree);
 
 
 
@@ -360,12 +342,12 @@ unsigned int avl_tree_num_entries(AVLTree *tree);
  * @param tree            The AVL tree to search.
  * @param key             The key to to find the successor of.
  * @return                The value associated with the successor, or
- *                        @ref AVL_TREE_NULL if no successor to the key was
+ *                        @ref NULL if no successor to the key was
  *                        found. 
  *                        I.e the "key" is greater than or equal to the 
  *                        node with the greatest key value
  */
-AVLTreeValue avl_tree_successor(AVLTree *tree, AVLTreeKey key);
+AVLTreeNode *avl_tree_successor(AVLTree *tree, AVLTreeKey key);
 
 
 /*
@@ -376,12 +358,12 @@ AVLTreeValue avl_tree_successor(AVLTree *tree, AVLTreeKey key);
  * @param tree            The AVL tree to search.
  * @param key             The key to to find the successor of.
  * @return                The value associated with the successor, or
- *                        @ref AVL_TREE_NULL if no successor to the key was
+ *                        @ref NULL if no successor to the key was
  *                        found. 
  *                        I.e the "key" is STRICTLY greater than the node with
  *                        the greatest key value
  */
-AVLTreeValue avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key);
+AVLTreeNode *avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key);
 
 /**
  * A Predeccessor of the key "x" is the node with the largest key value that is
@@ -393,12 +375,12 @@ AVLTreeValue avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key);
  * @param tree            The AVL tree to search.
  * @param key             The key to to find the successor of.
  * @return                The value associated with the predeccessor, or
- *                        @ref AVL_TREE_NULL if no successor to the key was
+ *                        @ref NULL if no successor to the key was
  *                        found. 
  *                        I.e the "key" is greater than or equal to the node
  *                        with the greatest key value
  */
-AVLTreeValue avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key);
+AVLTreeNode *avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key);
 
 
 /**
@@ -408,12 +390,12 @@ AVLTreeValue avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key);
  * @param tree            The AVL tree to search.
  * @param key             The key to to find the successor of.
  * @return                The value associated with the predeccessor, or
- *                        @ref AVL_TREE_NULL if no successor to the key was
+ *                        @ref NULL if no successor to the key was
  *                        found. 
  *                        I.e the "key" is STRICTLY less than the node with
  *                        the smallest key value
  */
-AVLTreeValue avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key);
+AVLTreeNode *avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key);
 
 
 /**
@@ -421,9 +403,9 @@ AVLTreeValue avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key);
  *
  * @param tree            The AVL tree to search.
  * @return                The value associated with node with min key
- *                        @ref AVL_TREE_NULL if there are no nodes
+ *                        @ref NULL if there are no nodes
  */
-AVLTreeValue avl_tree_min(AVLTree *tree);  
+AVLTreeNode *avl_tree_min(AVLTree *tree);
 
 
 /**
@@ -431,9 +413,9 @@ AVLTreeValue avl_tree_min(AVLTree *tree);
  *
  * @param tree            The AVL tree to search.
  * @return                The value associated with node with max key
- *                        @ref AVL_TREE_NULL if there are no nodes
+ *                        @ref NULL if there are no nodes
  */
-AVLTreeValue avl_tree_max(AVLTree *tree);  
+AVLTreeNode *avl_tree_max(AVLTree *tree);
 
 
 

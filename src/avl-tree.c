@@ -42,19 +42,18 @@ There are few changes
   - We will no longer free a node when it is removed
   - If the user wwants to call avl_tree_free(), the user MUST provide
     a "free" callback function
-- The AVL tree node is within the "value" passed by the caller instead of
-  being separately allocated. 
-  - This REQUIRES the "value" structure to have the "AVLTreeNode node" as 
-    the FIRST field. In theory it can be placed anywhere but we will have 
-    to requrier the caller to pass us the offset to the "AVLTreeNode node" field
-  - It also REQUIRES the "key" to be at a certain **offset** from the beginning
-    of the "value" structure. The caller specifies this "offset" when the tree
-    is created
-  - This modiciation gives us few advantages
-    - Performance: We will benefit from the data cache and avoid calling malloc
-    - Reduction of fragmentation. We will noo longer malloc/free
-      anythign related to to nodes. This should reduce the probability
-      of fragmentation
+
+- The AVL tree node is within the user structure instead of being
+  separately allocated. In theory it can be anywhere since the library
+  only requries the offset to the key from the node
+
+- This modiciation gives us few advantages
+  - Performance: We will benefit from the data cache and avoid calling malloc
+  - Reduction of fragmentation. We will noo longer malloc/free
+    anythign related to to nodes. This should reduce the probability
+    of fragmentation
+  - Memory can be anything, such as HW or file mapped memory
+
 - We added few functions
   
   
@@ -71,10 +70,13 @@ There are few changes
 /* AVL Tree (balanced binary search tree) */
 
 
+/* Macro that returns the address of the key given the node */
+#define AVL_NODE_TO_KEY(tree, tree_node)                        \
+  ((AVLTreeKey)((uintptr_t)(tree_node) + (tree)->key_offset))
 
 
 AVLTree *avl_tree_new(AVLTree *new_tree,
-                      uintptr_t key_offset,
+                      intptr_t key_offset,
                       AVLTreeCompareFunc compare_func,
                       AVLTreeFreeFunc free_func,
                       void *free_context)
@@ -341,17 +343,12 @@ static void avl_tree_balance_to_root(AVLTree *tree, AVLTreeNode *node)
   }
 }
 
-AVLTreeNode *avl_tree_insert(AVLTree *tree, AVLTreeValue value)
+AVLTreeNode *avl_tree_insert(AVLTree *tree, AVLTreeNode *new_node)
 {
   AVLTreeNode **rover;
   AVLTreeNode *previous_node;
   int cmp;
-  AVLTreeNode *new_node =
-    (AVLTreeNode *)value; /* node ASSUMED to be FIRST field in "value" */
 
-  /* record the key location */
-  new_node->key =
-    (AVLTreeKey) ((uintptr_t)value + tree->key_offset);
 
 
   /* Walk down the tree until we reach a NULL pointer */
@@ -361,7 +358,7 @@ AVLTreeNode *avl_tree_insert(AVLTree *tree, AVLTreeValue value)
 
   while (*rover != NULL) {
     previous_node = *rover;
-    cmp = tree->compare_func(new_node->key, (*rover)->key);
+    cmp = tree->compare_func(AVL_NODE_TO_KEY(tree, new_node), AVL_NODE_TO_KEY(tree, *rover));
     if (cmp == 0) {
       /* A node already exists with the same key value */
       return (NULL);
@@ -375,7 +372,6 @@ AVLTreeNode *avl_tree_insert(AVLTree *tree, AVLTreeValue value)
   new_node->children[AVL_TREE_NODE_LEFT] = NULL;
   new_node->children[AVL_TREE_NODE_RIGHT] = NULL;
   new_node->parent = previous_node;
-  new_node->value = value;
   new_node->height = 1;
 
   /* Insert at the NULL pointer that was reached */
@@ -522,7 +518,7 @@ int avl_tree_remove(AVLTree *tree, AVLTreeKey key)
 
 	/* Find the node to remove */
 
-	node = avl_tree_lookup_node(tree, key);
+	node = avl_tree_lookup(tree, key);
 
 	if (node == NULL) {
 		return 0;
@@ -535,66 +531,47 @@ int avl_tree_remove(AVLTree *tree, AVLTreeKey key)
 	return 1;
 }
 
-AVLTreeNode *avl_tree_lookup_node(AVLTree *tree, AVLTreeKey key)
+AVLTreeNode *avl_tree_lookup(AVLTree *tree, AVLTreeKey key)
 {
-	AVLTreeNode *node;
-	int diff;
+  AVLTreeNode *node;
+  int diff;
 
-	/* Search down the tree and attempt to find the node which
-	 * has the specified key */
+  /* Search down the tree and attempt to find the node which
+   * has the specified key */
 
-	node = tree->root_node;
+  node = tree->root_node;
 
-	while (node != NULL) {
+  while (node != NULL) {
 
-		diff = tree->compare_func(key, node->key);
+    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
 
-		if (diff == 0) {
+    if (diff == 0) {
 
-			/* Keys are equal: return this node */
+      /* Keys are equal: return this node */
 
-			return node;
+      return node;
 
-		} else if (diff < 0) {
-			node = node->children[AVL_TREE_NODE_LEFT];
-		} else {
-			node = node->children[AVL_TREE_NODE_RIGHT];
-		}
-	}
+    } else if (diff < 0) {
+      node = node->children[AVL_TREE_NODE_LEFT];
+    } else {
+      node = node->children[AVL_TREE_NODE_RIGHT];
+    }
+  }
 
-	/* Not found */
+  /* Not found */
 
-	return NULL;
+  return NULL;
 }
 
-AVLTreeValue avl_tree_lookup(AVLTree *tree, AVLTreeKey key)
-{
-	AVLTreeNode *node;
-
-	/* Find the node */
-
-	node = avl_tree_lookup_node(tree, key);
-
-	if (node == NULL) {
-		return AVL_TREE_NULL;
-	} else {
-		return node->value;
-	}
-}
 
 AVLTreeNode *avl_tree_root_node(AVLTree *tree)
 {
 	return tree->root_node;
 }
 
-AVLTreeKey avl_tree_node_key(AVLTreeNode *node)
+AVLTreeKey avl_tree_node_key(AVLTree *tree, AVLTreeNode *node)
 {
-	return node->key;
-}
-
-AVLTreeValue avl_tree_node_value(AVLTreeNode *node)
-{
-	return node->value;
+  return AVL_NODE_TO_KEY(tree, node);
 }
 
 AVLTreeNode *avl_tree_node_child(AVLTreeNode *node, AVLTreeNodeSide side)
@@ -616,9 +593,10 @@ unsigned int avl_tree_num_entries(AVLTree *tree)
 	return tree->num_nodes;
 }
 
-static void avl_tree_to_array_add_subtree(AVLTreeNode *subtree,
-                                         AVLTreeValue *array,
-                                         int *index)
+ static void avl_tree_to_array_add_subtree(AVLTree *tree,
+                                           AVLTreeNode *subtree,
+                                           void **array,
+                                           int *index)
 {
   if (subtree == NULL) {
     return;
@@ -626,23 +604,23 @@ static void avl_tree_to_array_add_subtree(AVLTreeNode *subtree,
 
   /* Add left subtree first */
 
-  avl_tree_to_array_add_subtree(subtree->children[AVL_TREE_NODE_LEFT],
+  avl_tree_to_array_add_subtree(tree, subtree->children[AVL_TREE_NODE_LEFT],
 	                              array, index);
 
   /* Add this node */
 
-  array[*index] = subtree->key;
+  array[*index] = AVL_NODE_TO_KEY(tree, subtree);
   ++*index;
 
   /* Finally add right subtree */
 
-  avl_tree_to_array_add_subtree(subtree->children[AVL_TREE_NODE_RIGHT],
+  avl_tree_to_array_add_subtree(tree, subtree->children[AVL_TREE_NODE_RIGHT],
                                 array, index);
 }
 
 
 
-AVLTreeValue *avl_tree_to_array(AVLTree *tree, void **array)
+void **avl_tree_to_array(AVLTree *tree, void **array)
 {
   int index = 0;
   
@@ -651,12 +629,12 @@ AVLTreeValue *avl_tree_to_array(AVLTree *tree, void **array)
   }
   
   /* Add all keys */
-  avl_tree_to_array_add_subtree(tree->root_node, array, &index); 
+  avl_tree_to_array_add_subtree(tree, tree->root_node, array, &index); 
   return array;
 }
 
 
-AVLTreeValue avl_tree_max(AVLTree *tree)
+AVLTreeNode *avl_tree_max(AVLTree *tree)
 {
   AVLTreeNode *node;
   AVLTreeNode *max = NULL;
@@ -670,14 +648,14 @@ AVLTreeValue avl_tree_max(AVLTree *tree)
     node = node->children[AVL_TREE_NODE_RIGHT];
   }
 
-  return ((AVLTreeValue)max);
+  return (max);
 }
 
 
 
 
 
-AVLTreeValue avl_tree_min(AVLTree *tree)
+AVLTreeNode *avl_tree_min(AVLTree *tree)
 {
   AVLTreeNode *node;
   AVLTreeNode *min = NULL;
@@ -691,7 +669,7 @@ AVLTreeValue avl_tree_min(AVLTree *tree)
     node = node->children[AVL_TREE_NODE_LEFT];
   }
 
-  return ((AVLTreeValue)min);
+  return (min);
 }
 
 
@@ -721,7 +699,7 @@ avl_tree_walk_internal(AVLTreeNode *subtree,
                          context);
 
   /* Call the callback function */
-  *is_stop = func((AVLTreeValue)subtree,context);
+  *is_stop = func(subtree,context);
 
   /* Finally add right subtree */
   avl_tree_walk_internal(subtree->children[is_descending ?
@@ -755,7 +733,7 @@ void avl_tree_walk(AVLTree *tree,
  *  we will use a loop
 */
 
-AVLTreeValue avl_tree_successor(AVLTree *tree, AVLTreeKey key)
+AVLTreeNode *avl_tree_successor(AVLTree *tree, AVLTreeKey key)
 {
   AVLTreeNode *node;
   int diff;
@@ -767,7 +745,7 @@ AVLTreeValue avl_tree_successor(AVLTree *tree, AVLTreeKey key)
   
   while (node != NULL) {
     
-    diff = tree->compare_func(key, node->key);
+    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
     
     if (diff < 0) {
       successor = node;
@@ -779,7 +757,7 @@ AVLTreeValue avl_tree_successor(AVLTree *tree, AVLTreeKey key)
   
   /* Not found */
   
-  return (AVLTreeValue)successor;
+  return successor;
 }
 
 
@@ -787,7 +765,7 @@ AVLTreeValue avl_tree_successor(AVLTree *tree, AVLTreeKey key)
  * Almost identical to successor except if we find a node that is equal 
  * to "key" we return it
  */
-AVLTreeValue avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key)
+AVLTreeNode *avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key)
 {
   AVLTreeNode *node;
   int diff;
@@ -800,13 +778,13 @@ AVLTreeValue avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key)
   
   while (node != NULL) {
     
-    diff = tree->compare_func(key, node->key);
+    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
     
     if (diff == 0) {
       
       /* found equal to: return it  */
 
-      return (AVLTreeValue)node;
+      return node;
       
     } else if (diff < 0) {
       successor = node;
@@ -817,7 +795,7 @@ AVLTreeValue avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key)
   }
   
   
-  return (AVLTreeValue)successor;
+  return successor;
 }
 
 
@@ -829,7 +807,7 @@ AVLTreeValue avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key)
  *  I.e. if there is anode with key value "x" we do NOT want it
  *  we will use a loop
 */
-AVLTreeValue avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key)
+AVLTreeNode *avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key)
 {
   AVLTreeNode *node;
   int diff;
@@ -841,7 +819,7 @@ AVLTreeValue avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key)
   
   while (node != NULL) {
     
-    diff = tree->compare_func(key, node->key);
+    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
     
     if (diff > 0) {
       predec = node;
@@ -851,7 +829,7 @@ AVLTreeValue avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key)
     }
   }
   
-  return (AVLTreeValue)predec;
+  return predec;
 }
 
 
@@ -860,7 +838,7 @@ AVLTreeValue avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key)
  * Identical to predeccessor except if we find a node that is equal 
  * to "key" we return it
  */
-AVLTreeValue avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key)
+AVLTreeNode *avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key)
 {
   AVLTreeNode *node;
   int diff;
@@ -873,13 +851,13 @@ AVLTreeValue avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key)
   
   while (node != NULL) {
     
-    diff = tree->compare_func(key, node->key);
+    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
     
     if (diff == 0) {
       
       /* found equal to: return it  */
 
-      return (AVLTreeValue)node;
+      return node;
       
     } else if (diff > 0) {
       predec = node;
@@ -889,6 +867,7 @@ AVLTreeValue avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key)
     }
   }
 
-  return (AVLTreeValue)predec;
+  return predec;
 }
 
+#undef AVL_NODE_TO_KEY
