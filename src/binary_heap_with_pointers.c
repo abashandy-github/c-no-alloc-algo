@@ -76,7 +76,7 @@ binary_heap_init(binary_heap_t *heap,
   return (BINARY_HEAP_ERR_OK);
 }
 
-binary_heap_node_t* heap_min(binary_heap_t *heap) {
+binary_heap_node_t* binary_heap_top(binary_heap_t *heap) {
   return (heap ? heap->min : NULL);
 }
 

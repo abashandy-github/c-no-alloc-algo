@@ -162,6 +162,18 @@ binary_heap_node_t *
 binary_heap_pop(binary_heap_t *heap);
 
 /**
+ * Return a pointer to the top node from a binary heap WITHOUT
+ * removing from the heap
+ *
+ * @param heap The heap.
+ * @return     a pointer to the node at the top of the heap or NULL if the
+ *             heap is empty
+ *             It will also return NULL if there is an error
+ */
+binary_heap_node_t*
+binary_heap_top(binary_heap_t *heap);
+
+/**
  * Insert an entry into a binary heap.
  * If this is the first time this ode is ever inserted, then the user
  * MUST zero out the contents of "newnode" pointers because the
