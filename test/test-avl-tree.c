@@ -134,6 +134,14 @@ static void internal_free(AVLTreeNode *node,
   return;
 }
 
+/*
+ * Function to return the key given the beginning of the value
+ */
+void * value2key(void *value, void *context)
+{
+  return ((void *)((uintptr_t)value +
+                   (uintptr_t)offsetof(struct int_array_t, value)));
+}
 
 
 /*
@@ -255,8 +263,10 @@ AVLTree *create_tree(AVLTree *tree_struct)
   /* Create a tree and fill with nodes */
    
   tree = avl_tree_new(tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node), /* Key is right after node field */
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
  
@@ -275,8 +285,10 @@ void test_avl_tree_new(void)
 
   printf(":  '%s'", __FUNCTION__);
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
 
@@ -299,8 +311,10 @@ void test_avl_tree_insert_lookup(void)
   /* Create a tree containing some values. Validate the
    * tree is consistent at all stages. */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
 
@@ -349,8 +363,10 @@ void test_avl_tree_child(void)
   /* Create a tree containing some values. Validate the
    * tree is consistent at all stages. */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
   for (i=0; i<3; ++i) {
@@ -390,8 +406,10 @@ void test_avl_tree_free(void)
 
   /* Try freeing an empty tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
   
@@ -495,8 +513,10 @@ void test_avl_tree_to_array(void)
 
   /* Create tree then Add all entries to the tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
 
@@ -548,8 +568,10 @@ void test_avl_tree_successor_predecessor_min_greater_or_equal_max_equal_or_less(
 
   /* Create tree then Add all entries to the tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
   for (i=0; i<num_entries; ++i) {
@@ -689,8 +711,10 @@ void test_avl_tree_min_max(void)
 
   /* Create tree then Add all entries to the tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node),
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
   for (i=0; i<num_entries; ++i) {
@@ -757,8 +781,10 @@ void test_avl_tree_walk(void)
   array  = malloc(sizeof(entries));
   /* Create tree then Add all entries to the tree */
   tree = avl_tree_new(&tree_struct,
-                      offsetof(struct int_array_t, value) - offsetof(struct int_array_t, node), /* Key is right after node field */
-                      (AVLTreeCompareFunc) int_compare,
+                      offsetof(struct int_array_t, node),
+                      int_compare,
+                      value2key,
+                      NULL,
                       internal_free,
                       NULL);
   for (i=0; i<num_entries; ++i) {

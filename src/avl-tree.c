@@ -70,25 +70,28 @@ There are few changes
 /* AVL Tree (balanced binary search tree) */
 
 
-/* Macro that returns the address of the key given the node */
-#define AVL_NODE_TO_KEY(tree, tree_node)                        \
-  ((AVLTreeKey)((uintptr_t)(tree_node) + (tree)->key_offset))
+/* Macro that returns the address of the user structure given the node */
+#define AVL_NODE_TO_VALUE(tree, tree_node)                        \
+  ((AVLTreeValue)((uintptr_t)(tree_node) - (tree)->node_offset))
 
 
 AVLTree *avl_tree_new(AVLTree *new_tree,
-                      intptr_t key_offset,
+                      intptr_t node_offset,
                       AVLTreeCompareFunc compare_func,
+                      AVLTreeKeyFunc key_func,
+                      void *key_context,
                       AVLTreeFreeFunc free_func,
                       void *free_context)
 {
 
-  if (new_tree == NULL || !compare_func) {
+  if (new_tree == NULL || !compare_func || !key_func) {
     return NULL;
   }
 
   new_tree->root_node = NULL;
   new_tree->compare_func = compare_func;
-  new_tree->key_offset = key_offset;
+  new_tree->key_func = key_func;
+  new_tree->node_offset = node_offset;
   new_tree->num_nodes = 0;
   new_tree->free_func = free_func;
   new_tree->free_context = free_context;
@@ -358,7 +361,8 @@ AVLTreeNode *avl_tree_insert(AVLTree *tree, AVLTreeNode *new_node)
 
   while (*rover != NULL) {
     previous_node = *rover;
-    cmp = tree->compare_func(AVL_NODE_TO_KEY(tree, new_node), AVL_NODE_TO_KEY(tree, *rover));
+    cmp = tree->compare_func(tree->key_func(AVL_NODE_TO_VALUE(tree, new_node), tree->key_context),
+                             tree->key_func(AVL_NODE_TO_VALUE(tree, *rover), tree->key_context));
     if (cmp == 0) {
       /* A node already exists with the same key value */
       return (NULL);
@@ -543,7 +547,8 @@ AVLTreeNode *avl_tree_lookup(AVLTree *tree, AVLTreeKey key)
 
   while (node != NULL) {
 
-    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
+    diff = tree->compare_func(key,
+                              tree->key_func(AVL_NODE_TO_VALUE(tree, node), tree->key_context));
 
     if (diff == 0) {
 
@@ -571,7 +576,7 @@ AVLTreeNode *avl_tree_root_node(AVLTree *tree)
 
 AVLTreeKey avl_tree_node_key(AVLTree *tree, AVLTreeNode *node)
 {
-  return AVL_NODE_TO_KEY(tree, node);
+  return (tree->key_func(AVL_NODE_TO_VALUE(tree, node), tree->key_context));
 }
 
 AVLTreeNode *avl_tree_node_child(AVLTreeNode *node, AVLTreeNodeSide side)
@@ -609,7 +614,7 @@ unsigned int avl_tree_num_entries(AVLTree *tree)
 
   /* Add this node */
 
-  array[*index] = AVL_NODE_TO_KEY(tree, subtree);
+  array[*index] = tree->key_func(AVL_NODE_TO_VALUE(tree, subtree), tree->key_context);
   ++*index;
 
   /* Finally add right subtree */
@@ -745,7 +750,8 @@ AVLTreeNode *avl_tree_successor(AVLTree *tree, AVLTreeKey key)
   
   while (node != NULL) {
     
-    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
+    diff = tree->compare_func(key,
+                              tree->key_func(AVL_NODE_TO_VALUE(tree, node), tree->key_context));
     
     if (diff < 0) {
       successor = node;
@@ -778,7 +784,8 @@ AVLTreeNode *avl_tree_min_equal_or_greater(AVLTree *tree, AVLTreeKey key)
   
   while (node != NULL) {
     
-    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
+    diff = tree->compare_func(key,
+                              tree->key_func(AVL_NODE_TO_VALUE(tree, node), tree->key_context));
     
     if (diff == 0) {
       
@@ -819,7 +826,8 @@ AVLTreeNode *avl_tree_predeccessor(AVLTree *tree, AVLTreeKey key)
   
   while (node != NULL) {
     
-    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
+    diff = tree->compare_func(key,
+                              tree->key_func(AVL_NODE_TO_VALUE(tree, node), tree->key_context));
     
     if (diff > 0) {
       predec = node;
@@ -851,7 +859,8 @@ AVLTreeNode *avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key)
   
   while (node != NULL) {
     
-    diff = tree->compare_func(key, AVL_NODE_TO_KEY(tree, node));
+    diff = tree->compare_func(key,
+                              tree->key_func(AVL_NODE_TO_VALUE(tree, node), tree->key_context));
     
     if (diff == 0) {
       
@@ -870,4 +879,4 @@ AVLTreeNode *avl_tree_max_equal_or_less(AVLTree *tree, AVLTreeKey key)
   return predec;
 }
 
-#undef AVL_NODE_TO_KEY
+#undef AVL_NODE_TO_VALUE

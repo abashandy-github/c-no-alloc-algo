@@ -110,6 +110,12 @@ typedef struct _AVLTreeNode {
 
 
 /**
+ * Type that represents the beginning of the strucure that the user wants to insert/delete/lookup
+ * in the tree
+ */
+typedef void * AVLTreeValue;
+
+/**
  * Type of function used to compare keys in an AVL tree.
  *
  * @param value1   The first key.
@@ -121,6 +127,13 @@ typedef struct _AVLTreeNode {
  *                 equal.
  */
 typedef int (*AVLTreeCompareFunc)(AVLTreeKey Key1, AVLTreeKey Key2);
+
+/*
+ * Callback function to to return a pointer to the key given the beginning of
+ * the user structure
+ */
+typedef void * (*AVLTreeKeyFunc)(AVLTreeValue value, void *context);
+
 
 /*
  * Callback function to free a node 
@@ -149,9 +162,11 @@ typedef bool (*AVLTreeWalkFunc)(AVLTreeNode *node, void *context);
 typedef struct _AVLTree  {
   AVLTreeNode *root_node;
   AVLTreeCompareFunc compare_func;
+  AVLTreeKeyFunc key_func;
+  void *key_context;
   uint32_t num_nodes;
   AVLTreeFreeFunc free_func;
-  intptr_t key_offset;
+  intptr_t node_offset;
   void *free_context;
 } AVLTree;
 
@@ -163,19 +178,42 @@ typedef struct _AVLTree  {
  * @param new_tree      Pointer passed to us by the caller to be 
  *                      populated by us if we successfully create the
  *                      tree. 
- *                      It is the responsibility of the caller to allocate
- *                      and free this pointer
- * @param key_offset    Offset from the beginning of the field "node" to where the
- *                      key starts. "node" is a field in what user of this
- *                      library inserts, deletes, lookup,..., etc
+ *                      It is the responsibility of the caller to
+ *                      allocate and free this pointer @param
+ *
+ * @param node_offset   Offset from the beginning of the value that the
+ *                      user inserts (i.e. the structure that contains
+ *                      the field "node" and "node". "node" is a field
+ *                      in what user of this library inserts, deletes,
+ *                      lookup,..., etc
+ *                      for additional flexibility, we allow the "node"
+ *                      field to be anywhere, including being BEFORE the structure"
+ *                      the user inserts.
+ *                      For example, if the pointer to the user's structure
+ *                      is in the variable "value" and the pointer to the
+ *                      node is another variable or field "node", then
+ *                      "node_offset" field should contain
+ *                          (uintptr_t)node - (uintptr_t)value
+ *                      Another example, if "node" is a field inside the
+ *                      user structure "struct user_struct", then
+ *                      "node_offset" field should contain
+ *                          offsetof(struct user_struct, node)
+ *
+ * @param compare_func  Function to use when comparing keys in the tree.
+ *
+ * @param key_func      Function that returns a pointer to the key (void *)
+ *                      when given the beginning of the structure that the user inserts.
+ *                      The returned pointer is passed to the
+ *                      compare_func to be used when comparing keys in
+ *                      the tree.
  *                      NOTE:
- *                      "key_offset" determines the address that will be passed
+ *                      "key_func" returns the address that will be passed
  *                      to the compare function. How the compare function
  *                      performs the comparison or what contents to it uses to
  *                      return negative, positive, or zero is application
- *                      specific. "key_offset" just determines what will be
- *                      passed to the compare function. Hence "key_offset"
- *                      may point to anything inside or outside the value that
+ *                      specific. "key_func" just determines what will be
+ *                      passed to the compare function. Hence "key_func"
+ *                      may point to anything inside or outside the structure that
  *                      the user inserts/deletes/looks-up in the tree
  *                      QUESTION:
  *                      Why do we need a key? Can't we just live with "node"?
@@ -184,7 +222,8 @@ typedef struct _AVLTree  {
  *                      whose key matches the lookup key (as determined by the
  *                      compare function)
  *
- * @param compare_func  Function to use when comparing keys in the tree.
+ * @param key_context  Opaque context passed to the key_func
+ *
  * @param free_func;    Function used to free a node
  *                      This is optional. But it is required if the caller wants
  *                      to use the API "avl_tree_free(AVLTree *tree)"
@@ -194,8 +233,10 @@ typedef struct _AVLTree  {
  *                        to create the tree for any reason.
  */
 AVLTree *avl_tree_new(AVLTree *new_tree,
-                      intptr_t key_offset,
+                      intptr_t node_offset,
                       AVLTreeCompareFunc compare_func,
+                      AVLTreeKeyFunc key_func,
+                      void *key_context,
                       AVLTreeFreeFunc free_func,
                       void *free_context);
 
