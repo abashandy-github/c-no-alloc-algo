@@ -30,11 +30,16 @@ SRCINC = $(wildcard $(SRCDIR)/*.h)
 SRC = $(wildcard $(SRCDIR)/*.c)
 TESTSRC = $(wildcard $(TESTDIR)/*.c)
 
+# Include files ONLY. used to delete them when uninstalling
+# We will just replace the source directory in each filename with
+# nothing, thereby getting the filenames ONLY
+INCFILES = $(subst $(SRCDIR)/,, $(SRCINC))
+
 # Object
 OBJ = $(subst $(SRCDIR), $(OBJDIR),  $(patsubst %.c, %.o, $(SRC)))
 TESTOBJ = $(patsubst %.c, %.o, $(subst $(TESTDIR), $(OBJDIR), $(TESTSRC)))
 
-# dependecy
+# dependency
 DEP = $(patsubst %.o,%.d,$(OBJ))
 
 # Testing binary Binaries
@@ -88,7 +93,39 @@ $(LIBCALGOSTATIC): $(OBJDIR)/$(LIBCALGOSTATIC)
 $(OBJDIR)/$(LIBCALGOSTATIC): $(OBJ)
 	$(info Need $^)
 	$(AR) rcs $@ $^
+# Install/Uninstall
+# You most likely need to use "sudo", at least for "ldconfig" to succeed
+# $(PREFIX) is the default directory where your stuff is installed
+# $(DESTDIR) allows someone (e.g. the debian package builder) to put
+# your entire directory hierarchy in a place other than the default one
+#
+# To install in a place other than default
+#  make DESTDIR=<directory> install
+# Example
+#    make DESTDIR=/tmp install
+#
+# To Uninstall from a directory other than default
+#  make DESTDIR=<directory> uninstall
+# Example
+#    make DESTDIR=/tmp uninstall
+# Note that after uninstalling, you have to delete the directory <directory>
+PREFIX ?= /usr
+install: $(LIBCALGO) $(LIBCALGOSTATIC)
+	echo $(SRCINC)
+	install -d $(DESTDIR)$(PREFIX)/lib
+	install -m 644 $(OBJDIR)/$(LIBCALGO) $(DESTDIR)$(PREFIX)/lib
+	install -m 644 $(OBJDIR)/$(LIBCALGOSTATIC) $(DESTDIR)$(PREFIX)/lib
+	install -d $(DESTDIR)$(PREFIX)/include
+	install -m 644 $(SRCINC) $(DESTDIR)$(PREFIX)/include
+	ldconfig $(DESTDIR)$(PREFIX)/lib
 
+uninstall:
+	for incfile in $(INCFILES); do \
+		$(RM) $(DESTDIR)$(PREFIX)/include/$$incfile ; \
+	done
+	$(RM) $(DESTDIR)$(PREFIX)/lib/$(LIBCALGO)
+	$(RM) $(DESTDIR)$(PREFIX)/lib/$(LIBCALGOSTATIC)
+	ldconfig $(DESTDIR)$(PREFIX)/lib
 
 # TESTING
 # We want to generate a separate binary for each test.
@@ -98,7 +135,7 @@ $(OBJDIR)/$(LIBCALGOSTATIC): $(OBJ)
 $(TESTOBJ): $(TESTSRC)
 	$(CC) -c -fPIC $(CFLAGS) -o $@ $(patsubst %.o, %.c, $(subst $(OBJDIR), $(TESTDIR), $@))
 test: $(TESTBIN)
-$(TESTBIN): $(TESTOBJ) $(LIBCALGO) $(LIBCALGOSTATIC)
+$(TESTBIN): $(LIBCALGO) $(LIBCALGOSTATIC) $(TESTOBJ)
 	$(CC) $(CFLAGS) -o $@ $@.o $(OBJDIR)/$(LIBCALGOSTATIC) $(TESTINGLDFLAGS) 
 
 
